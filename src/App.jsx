@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Calendar, DollarSign, Mail, Phone, MapPin, Briefcase, TrendingUp, Sparkles, ChevronRight, Building2, Clock, Users, Star, LogOut, User, CreditCard, AlertCircle, Check } from 'lucide-react';
 
 // API Configuration
-const API_URL = 'http://localhost:5000/api';
+const API_URL = 'https://jiffy-apply-backend.onrender.com';
 
 const JiffyApply = () => {
   const [currentPage, setCurrentPage] = useState('login');
