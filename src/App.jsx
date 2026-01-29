@@ -29,7 +29,7 @@ const JiffyApply = () => {
   // Fetch user profile
   const fetchUserProfile = async () => {
     try {
-      const response = await fetch(`${API_URL}/user/profile`, {
+const response = await fetch(`${API_URL}/api/user/profile`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -58,7 +58,7 @@ const JiffyApply = () => {
   // Fetch user applications
   const fetchApplications = async () => {
     try {
-      const response = await fetch(`${API_URL}/applications`, {
+      const response = await fetch(`${API_URL}/api/applications`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -144,7 +144,7 @@ const JiffyApply = () => {
   // Acknowledge fees
   const acknowledgeFees = async () => {
     try {
-      await fetch(`${API_URL}/user/acknowledge-fees`, {
+      await fetch(`${API_URL}/api/user/acknowledge-fees`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -162,7 +162,7 @@ const JiffyApply = () => {
   const handleSubscribe = async (paymentData) => {
     setError('');
     try {
-      const response = await fetch(`${API_URL}/subscription/subscribe`, {
+      const response = await fetch(`${API_URL}/api/subscription/subscribe`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -199,7 +199,7 @@ const JiffyApply = () => {
   const fetchPopularJobs = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/jobs/popular`, {
+      const response = await fetch(`${API_URL}/api/jobs/popular`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -277,7 +277,7 @@ const JiffyApply = () => {
       ].join(' ');
 
       // Call backend with keywords from resume
-      const response = await fetch(`${API_URL}/jobs/search?keywords=${encodeURIComponent(keywords)}`, {
+      const response = await fetch(`${API_URL}/api/jobs/search?keywords=${encodeURIComponent(keywords)}`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -311,7 +311,7 @@ const JiffyApply = () => {
       });
 
       // Send to backend
-      const submitResponse = await fetch(`${API_URL}/applications/bulk`, {
+      const submitResponse = await fetch(`${API_URL}/api/applications/bulk`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -354,7 +354,7 @@ const JiffyApply = () => {
     
     try {
       // Backend handles both parsing AND suggestions
-      const response = await fetch(`${API_URL}/user/resume`, {
+const response = await fetch(`${API_URL}/api/user/resume`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
