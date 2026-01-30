@@ -3,22 +3,67 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
+const multer = require('multer');
+const pdfParse = require('pdf-parse');
+const mammoth = require('mammoth');
 require('dotenv').config();
 
 const app = express();
 
-// Middleware
+// ============================================
+// CORS Configuration - Updated
+// ============================================
+const allowedOrigins = [
+  'https://smoothicedude.github.io',
+  'http://localhost:3000',
+  'http://localhost:5173' // In case you use Vite
+];
+
 app.use(cors({
-  origin: ['https://smoothicedude.github.io', 'http://localhost:3000'],
-  credentials: true
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
+
+// Handle preflight requests for all routes
+app.options('*', cors());
+
+// Middleware
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// ============================================
+// File Upload Configuration
+// ============================================
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Only PDF and DOCX allowed.'));
+    }
+  }
+});
 
 // MongoDB Connection
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/jiffy-apply')
-
-.then(() => console.log('MongoDB connected successfully'))
-.catch(err => console.error('MongoDB connection error:', err));
+  .then(() => console.log('MongoDB connected successfully'))
+  .catch(err => console.error('MongoDB connection error:', err));
 
 // User Schema
 const userSchema = new mongoose.Schema({
@@ -71,6 +116,24 @@ const userSchema = new mongoose.Schema({
   acknowledgedFees: {
     type: Boolean,
     default: false
+  },
+  resume: {
+    originalText: String,
+    parsed: {
+      skills: [String],
+      experience: [{
+        title: String,
+        company: String,
+        duration: String
+      }],
+      education: [{
+        degree: String,
+        school: String,
+        year: String
+      }],
+      keywords: [String]
+    },
+    uploadedAt: Date
   }
 });
 
@@ -140,12 +203,39 @@ const authenticateToken = (req, res, next) => {
   }
 };
 
+// ============================================
 // Routes
+// ============================================
+
+// Health Check
+app.get('/', (req, res) => {
+  res.json({ 
+    message: 'Jiffy Apply API is running',
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'OK', 
+    timestamp: new Date().toISOString(),
+    allowedOrigins
+  });
+});
 
 // Register
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { email, password, firstName, lastName, phone } = req.body;
+
+    // Validation
+    if (!email || !password || !firstName || !lastName) {
+      return res.status(400).json({ error: 'Email, password, first name, and last name are required' });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
@@ -196,6 +286,10 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
 
     // Find user
     const user = await User.findOne({ email });
@@ -263,6 +357,99 @@ app.post('/api/user/acknowledge-fees', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Acknowledge fees error:', error);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Resume upload and parsing
+app.post('/api/user/resume', authenticateToken, upload.single('resume'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    let resumeText = '';
+
+    // Parse based on file type
+    if (req.file.mimetype === 'application/pdf') {
+      const pdfData = await pdfParse(req.file.buffer);
+      resumeText = pdfData.text;
+    } else if (req.file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+      const result = await mammoth.extractRawText({ buffer: req.file.buffer });
+      resumeText = result.value;
+    }
+
+    if (!resumeText || resumeText.trim().length === 0) {
+      return res.status(400).json({ error: 'Could not extract text from resume' });
+    }
+
+    // Call Claude API to parse resume
+    const claudeResponse = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.CLAUDE_API_KEY,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-3-5-sonnet-20241022',
+        max_tokens: 1024,
+        messages: [{
+          role: 'user',
+          content: `Parse this resume and extract key information. Return ONLY a JSON object (no markdown, no explanation) with this exact structure:
+{
+  "skills": ["skill1", "skill2"],
+  "experience": [{"title": "Job Title", "company": "Company Name", "duration": "2020-2023"}],
+  "education": [{"degree": "Degree", "school": "School Name", "year": "2020"}],
+  "keywords": ["keyword1", "keyword2"]
+}
+
+Resume text:
+${resumeText}`
+        }]
+      })
+    });
+
+    if (!claudeResponse.ok) {
+      throw new Error(`Claude API error: ${claudeResponse.status}`);
+    }
+
+    const claudeData = await claudeResponse.json();
+    const parsedContent = claudeData.content[0].text;
+    
+    // Try to parse the JSON response from Claude
+    let parsedResume;
+    try {
+      parsedResume = JSON.parse(parsedContent);
+    } catch (e) {
+      // If Claude didn't return pure JSON, extract it
+      const jsonMatch = parsedContent.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        parsedResume = JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error('Could not parse resume data from Claude');
+      }
+    }
+
+    // Update user with parsed resume data
+    const user = await User.findById(req.user.userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    user.resume = {
+      originalText: resumeText,
+      parsed: parsedResume,
+      uploadedAt: new Date()
+    };
+    await user.save();
+
+    res.json({
+      message: 'Resume uploaded and parsed successfully',
+      resume: parsedResume
+    });
+  } catch (error) {
+    console.error('Resume upload error:', error);
+    res.status(500).json({ error: 'Failed to process resume', details: error.message });
   }
 });
 
@@ -430,6 +617,25 @@ app.patch('/api/applications/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// Delete application
+app.delete('/api/applications/:id', authenticateToken, async (req, res) => {
+  try {
+    const application = await Application.findOneAndDelete({
+      _id: req.params.id,
+      userId: req.user.userId
+    });
+
+    if (!application) {
+      return res.status(404).json({ error: 'Application not found' });
+    }
+
+    res.json({ message: 'Application deleted successfully' });
+  } catch (error) {
+    console.error('Delete application error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // Helper function to determine card type
 function getCardType(cardNumber) {
   const number = cardNumber.replace(/\s/g, '');
@@ -440,8 +646,17 @@ function getCardType(cardNumber) {
   return 'Unknown';
 }
 
+// ============================================
+// Error Handler
+// ============================================
+app.use((err, req, res, next) => {
+  console.error('Error:', err);
+  res.status(500).json({ error: err.message || 'Internal server error' });
+});
+
 // Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log('Allowed origins:', allowedOrigins);
 });
