@@ -77,7 +77,7 @@ const response = await fetch(`${API_URL}/api/user/profile`, {
   const handleLogin = async (email, password) => {
     setError('');
     try {
-      const response = await fetch(`${API_URL}/api/auth/register`, {
+      const response = await fetch(`${API_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
